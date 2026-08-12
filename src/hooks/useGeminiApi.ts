@@ -62,7 +62,9 @@ const DAILY_QUOTA_PATTERNS = ['perday', 'per day', 'daily'];
 const includesQuotaPattern = (value: string, patterns: string[]) =>
   patterns.some(pattern => value.includes(pattern));
 
-const getQuotaViolationText = (details?: GeminiErrorResponse['error'] extends { details?: infer T } ? T : never) => {
+type GeminiErrorDetails = NonNullable<NonNullable<GeminiErrorResponse['error']>['details']>;
+
+const getQuotaViolationText = (details?: GeminiErrorDetails) => {
   if (!details) return '';
 
   return details
