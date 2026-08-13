@@ -12,7 +12,15 @@ interface MetadataResult {
   category: string;
 }
 
-type GeminiModel = 'gemini-2.5-pro' | 'gemini-2.5-flash' | 'gemini-2.0-flash';
+// Interactions API supported models (https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
+type GeminiModel =
+  | 'gemini-3.6-flash'
+  | 'gemini-3.5-flash'
+  | 'gemini-flash-latest'
+  | 'gemini-2.5-flash';
+
+const DEFAULT_MODEL: GeminiModel = 'gemini-3.6-flash';
+const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
   error?: {
@@ -84,9 +92,10 @@ const getQuotaViolationText = (details?: GeminiErrorDetails) => {
 };
 
 const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
-  'gemini-2.5-pro': 'gemini-2.5-flash',
-  'gemini-2.5-flash': 'gemini-2.0-flash',
-  'gemini-2.0-flash': null,
+  'gemini-3.6-flash': 'gemini-3.5-flash',
+  'gemini-3.5-flash': 'gemini-flash-latest',
+  'gemini-flash-latest': 'gemini-2.5-flash',
+  'gemini-2.5-flash': null,
 };
 
 // Clean symbols from keywords
@@ -345,7 +354,7 @@ export const useGeminiApi = () => {
     const makeApiCall = async ({
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
-      model = 'gemini-2.5-pro' as GeminiModel,
+      model = DEFAULT_MODEL,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -357,23 +366,27 @@ export const useGeminiApi = () => {
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
-        const isRateLimitedModel = model !== 'gemini-2.5-pro';
+        const isRateLimitedModel = model !== DEFAULT_MODEL;
 
-        const parts = alternateOrder
-          ? [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }]
-          : [{ inlineData: { mimeType, data: base64Data } }, { text: prompt }];
+        const mediaBlock = {
+          type: contentType,
+          data: base64Data,
+          mime_type: mimeType,
+        };
+        const textBlock = { type: 'text', text: prompt };
+        const input = alternateOrder ? [textBlock, mediaBlock] : [mediaBlock, textBlock];
 
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${currentKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
-          }
-        );
+        const response = await fetch(INTERACTIONS_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': currentKey ?? '',
+          },
+          body: JSON.stringify({ model, input }),
+        });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
@@ -543,7 +556,7 @@ export const useGeminiApi = () => {
 
     try {
       const { data, usedKeyIndex } = await makeApiCall();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = extractInteractionText(data);
       if (!text) throw new Error('No response from API');
 
       const lines = text.split('\n');
