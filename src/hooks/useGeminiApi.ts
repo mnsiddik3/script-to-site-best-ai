@@ -374,7 +374,7 @@ export const useGeminiApi = () => {
     const makeApiCall = async ({
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
-      model = DEFAULT_MODEL,
+      model = DEFAULT_MODEL as GeminiModel,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
