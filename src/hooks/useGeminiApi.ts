@@ -91,6 +91,26 @@ const getQuotaViolationText = (details?: GeminiErrorDetails) => {
     .toLowerCase();
 };
 
+// Interactions API returns an Interaction resource: steps[].content[] text blocks.
+// Falls back to the legacy generateContent shape just in case.
+const extractInteractionText = (data: any): string => {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  const steps = Array.isArray(data?.steps) ? data.steps : [];
+  const text = steps
+    .flatMap((step: any) => (Array.isArray(step?.content) ? step.content : []))
+    .filter((block: any) => block?.type === 'text' && typeof block?.text === 'string')
+    .map((block: any) => block.text)
+    .join('\n')
+    .trim();
+
+  if (text) return text;
+
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+};
+
 const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
   'gemini-3.6-flash': 'gemini-3.5-flash',
   'gemini-3.5-flash': 'gemini-flash-latest',
