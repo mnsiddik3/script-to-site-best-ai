@@ -559,6 +559,31 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        const isNetworkError =
+          error instanceof TypeError ||
+          /failed to fetch|network ?error|load failed|networkerror|connection/i.test(rawMessage);
+
+        if (isNetworkError && networkRetryCount < 3) {
+          const delay = Math.min(2000 * Math.pow(2, networkRetryCount), 12000);
+          await new Promise(r => setTimeout(r, delay));
+          return makeApiCall({
+            alternateOrder,
+            tryKeyIndex,
+            model,
+            quotaRetryCount,
+            overloadRetryCount,
+            tempRateLimitRetryCount,
+            networkRetryCount: networkRetryCount + 1,
+          });
+        }
+
+        if (isNetworkError) {
+          throw new Error(
+            'নেটওয়ার্ক সংযোগে সমস্যা হচ্ছে (Failed to fetch)। ইন্টারনেট সংযোগ, VPN/ফায়ারওয়াল বা ব্রাউজার এক্সটেনশন চেক করে আবার চেষ্টা করুন।'
+          );
+        }
+
         if (overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
           await new Promise(r => setTimeout(r, delay));
@@ -569,6 +594,7 @@ export const useGeminiApi = () => {
             quotaRetryCount,
             overloadRetryCount: overloadRetryCount + 1,
             tempRateLimitRetryCount,
+            networkRetryCount,
           });
         }
         throw error;
