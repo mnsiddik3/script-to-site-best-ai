@@ -62,31 +62,37 @@ function Index() {
     }));
     setResults(initialPlaceholders);
     
-    for (let i = 0; i < selectedImages.length; i++) {
+    // Process several images at once instead of one-by-one (much faster).
+    const keyCount = apiKeys.filter(k => k.trim()).length;
+    const concurrency = Math.min(selectedImages.length, Math.max(3, keyCount * 3), 8);
+    let completed = 0;
+    let nextIndex = 0;
+
+    const processOne = async (i: number) => {
       const imageFile = selectedImages[i];
-      
-      setResults(prev => 
-        prev.map((item, index) => 
-          index === i 
+
+      setResults(prev =>
+        prev.map((item, index) =>
+          index === i
             ? { ...item, title: 'Processing...', description: 'Generating metadata...', processing: true, failed: false, errorMessage: undefined }
             : item
         )
       );
 
       const { result, error } = await generateMetadata(imageFile, apiKeys);
-      
+
       if (result) {
-        setResults(prev => 
-          prev.map((item, index) => 
-            index === i 
+        setResults(prev =>
+          prev.map((item, index) =>
+            index === i
               ? { ...result, image: imageFile, processing: false, selectedTitleIndex: 0, failed: false, errorMessage: undefined }
               : item
           )
         );
       } else {
-        setResults(prev => 
-          prev.map((item, index) => 
-            index === i 
+        setResults(prev =>
+          prev.map((item, index) =>
+            index === i
               ? {
                   ...item,
                   title: '',
@@ -103,9 +109,20 @@ function Index() {
           )
         );
       }
-      
-      setProcessingProgress(((i + 1) / selectedImages.length) * 100);
-    }
+
+      completed += 1;
+      setProcessingProgress((completed / selectedImages.length) * 100);
+    };
+
+    const worker = async () => {
+      while (nextIndex < selectedImages.length) {
+        const i = nextIndex++;
+        await processOne(i);
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
   };
 
   const handleSingleRegenerate = async (image: File, index: number) => {
