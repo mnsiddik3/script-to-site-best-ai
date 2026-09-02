@@ -64,7 +64,7 @@ function Index() {
     
     // Process several images at once instead of one-by-one (much faster).
     const keyCount = apiKeys.filter(k => k.trim()).length;
-    const concurrency = Math.min(selectedImages.length, Math.max(3, keyCount * 3), 8);
+    const concurrency = Math.min(selectedImages.length, Math.max(2, keyCount * 2), 4);
     let completed = 0;
     let nextIndex = 0;
 
