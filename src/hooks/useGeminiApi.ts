@@ -378,6 +378,7 @@ export const useGeminiApi = () => {
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
+      networkRetryCount = 0,
     } = {}): Promise<any> => {
       try {
         const { base64Data, mimeType } = isVideo
