@@ -35,8 +35,11 @@ function Index() {
     errorMessage?: string;
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const { generateMetadata, loading, activeKeyIndex } = useGeminiApi();
+  const { generateMetadata, activeKeyIndex } = useGeminiApi();
+  const loading = isGenerating;
+
 
   const handleApiKeysChange = (keys: string[]) => {
     setApiKeys(keys);
