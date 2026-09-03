@@ -269,6 +269,7 @@ export const useGeminiApi = () => {
   const exhaustedKeys = useRef<Set<number>>(new Set());
   const keyUsageCount = useRef<number>(0);
   const currentRotationKey = useRef<number>(-1);
+  const speedOptionsSupported = useRef(true);
 
   const REQUESTS_PER_KEY = 10;
   const KEY_ROTATION_PAUSE = 120000; // 2 minutes
@@ -400,14 +401,35 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        const response = await fetch(INTERACTIONS_ENDPOINT, {
+        // Speed tuning: minimal thinking + capped output makes metadata generation much faster.
+        const speedOptions = speedOptionsSupported.current
+          ? { thinking_level: 'low', generation_config: { max_output_tokens: 1024, temperature: 0.7 } }
+          : {};
+
+        let response = await fetch(INTERACTIONS_ENDPOINT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-goog-api-key': currentKey ?? '',
           },
-          body: JSON.stringify({ model, input }),
+          body: JSON.stringify({ model, input, ...speedOptions }),
         });
+
+        // If the API rejects the speed-tuning fields, disable them and retry plainly.
+        if (!response.ok && response.status === 400 && speedOptionsSupported.current) {
+          const cloneText = await response.clone().text().catch(() => '');
+          if (/unknown name|invalid json payload|cannot find field|unknown field/i.test(cloneText)) {
+            speedOptionsSupported.current = false;
+            response = await fetch(INTERACTIONS_ENDPOINT, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': currentKey ?? '',
+              },
+              body: JSON.stringify({ model, input }),
+            });
+          }
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
