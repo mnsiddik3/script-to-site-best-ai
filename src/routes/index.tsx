@@ -35,8 +35,11 @@ function Index() {
     errorMessage?: string;
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const { generateMetadata, loading, activeKeyIndex } = useGeminiApi();
+  const { generateMetadata, activeKeyIndex } = useGeminiApi();
+  const loading = isGenerating;
+
 
   const handleApiKeysChange = (keys: string[]) => {
     setApiKeys(keys);
@@ -46,12 +49,15 @@ function Index() {
   const hasValidKey = apiKeys.some(k => k.trim());
 
   const handleGenerate = async () => {
-    if (!selectedImages.length || !hasValidKey) return;
+    if (!selectedImages.length || !hasValidKey || isGenerating) return;
 
+    setIsGenerating(true);
     setResults([]);
     setProcessingProgress(0);
-    
-    const initialPlaceholders = selectedImages.map(imageFile => ({
+
+    const images = [...selectedImages];
+
+    const initialPlaceholders = images.map(imageFile => ({
       title: 'Waiting...',
       description: 'In queue...',
       keywords: [] as string[],
@@ -61,15 +67,14 @@ function Index() {
       failed: false,
     }));
     setResults(initialPlaceholders);
-    
-    // Process several images at once instead of one-by-one (much faster).
-    const keyCount = apiKeys.filter(k => k.trim()).length;
-    const concurrency = Math.min(selectedImages.length, Math.max(2, keyCount * 2), 4);
-    let completed = 0;
-    let nextIndex = 0;
 
-    const processOne = async (i: number) => {
-      const imageFile = selectedImages[i];
+    // Process a few images at once, but keep it gentle so the API does not rate-limit us.
+    const keyCount = apiKeys.filter(k => k.trim()).length;
+    const concurrency = Math.min(images.length, Math.max(2, keyCount), 3);
+    const doneIndices = new Set<number>();
+
+    const processOne = async (i: number): Promise<boolean> => {
+      const imageFile = images[i];
 
       setResults(prev =>
         prev.map((item, index) =>
@@ -110,20 +115,41 @@ function Index() {
         );
       }
 
-      completed += 1;
-      setProcessingProgress((completed / selectedImages.length) * 100);
+      if (result) doneIndices.add(i);
+      setProcessingProgress((doneIndices.size / images.length) * 100);
+      return Boolean(result);
     };
 
-    const worker = async () => {
-      while (nextIndex < selectedImages.length) {
-        const i = nextIndex++;
-        await processOne(i);
+    const runPass = async (indices: number[]) => {
+      let nextPos = 0;
+      const worker = async (workerId: number) => {
+        // stagger worker starts so all requests do not hit the API at the exact same moment
+        await new Promise(r => setTimeout(r, workerId * 700));
+        while (nextPos < indices.length) {
+          const i = indices[nextPos++];
+          await processOne(i);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(concurrency, indices.length) }, (_, w) => worker(w))
+      );
+    };
+
+    try {
+      await runPass(images.map((_, i) => i));
+
+      // Automatically retry the ones that failed (up to 2 extra rounds) so nothing is left out.
+      for (let round = 0; round < 2; round++) {
+        const pending = images.map((_, i) => i).filter(i => !doneIndices.has(i));
+        if (pending.length === 0) break;
+        await new Promise(r => setTimeout(r, 4000));
+        await runPass(pending);
       }
-    };
-
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
-
+    } finally {
+      setIsGenerating(false);
+    }
   };
+
 
   const handleSingleRegenerate = async (image: File, index: number) => {
     setResults(prev => 
