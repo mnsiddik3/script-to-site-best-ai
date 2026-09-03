@@ -269,6 +269,7 @@ export const useGeminiApi = () => {
   const exhaustedKeys = useRef<Set<number>>(new Set());
   const keyUsageCount = useRef<number>(0);
   const currentRotationKey = useRef<number>(-1);
+  const speedOptionsSupported = useRef(true);
 
   const REQUESTS_PER_KEY = 10;
   const KEY_ROTATION_PAUSE = 120000; // 2 minutes
