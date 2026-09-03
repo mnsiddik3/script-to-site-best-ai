@@ -401,9 +401,10 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        // Speed tuning: minimal thinking + capped output makes metadata generation much faster.
+        // Speed tuning: cap output so metadata comes back faster. Some API versions
+        // reject these extra fields, so any 400 falls back to the plain request once.
         const speedOptions = speedOptionsSupported.current
-          ? { thinking_level: 'low', generation_config: { max_output_tokens: 1024, temperature: 0.7 } }
+          ? { generation_config: { max_output_tokens: 1024, temperature: 0.7 } }
           : {};
 
         let response = await fetch(INTERACTIONS_ENDPOINT, {
@@ -415,20 +416,16 @@ export const useGeminiApi = () => {
           body: JSON.stringify({ model, input, ...speedOptions }),
         });
 
-        // If the API rejects the speed-tuning fields, disable them and retry plainly.
         if (!response.ok && response.status === 400 && speedOptionsSupported.current) {
-          const cloneText = await response.clone().text().catch(() => '');
-          if (/unknown name|invalid json payload|cannot find field|unknown field/i.test(cloneText)) {
-            speedOptionsSupported.current = false;
-            response = await fetch(INTERACTIONS_ENDPOINT, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': currentKey ?? '',
-              },
-              body: JSON.stringify({ model, input }),
-            });
-          }
+          speedOptionsSupported.current = false;
+          response = await fetch(INTERACTIONS_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': currentKey ?? '',
+            },
+            body: JSON.stringify({ model, input }),
+          });
         }
 
         if (!response.ok) {
