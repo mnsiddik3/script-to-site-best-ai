@@ -269,7 +269,6 @@ export const useGeminiApi = () => {
   const exhaustedKeys = useRef<Set<number>>(new Set());
   const keyUsageCount = useRef<number>(0);
   const currentRotationKey = useRef<number>(-1);
-  const speedOptionsSupported = useRef(true);
 
   const REQUESTS_PER_KEY = 10;
   const KEY_ROTATION_PAUSE = 120000; // 2 minutes
@@ -379,7 +378,6 @@ export const useGeminiApi = () => {
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
-      networkRetryCount = 0,
     } = {}): Promise<any> => {
       try {
         const { base64Data, mimeType } = isVideo
@@ -401,32 +399,14 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        // Speed tuning: cap output so metadata comes back faster. Some API versions
-        // reject these extra fields, so any 400 falls back to the plain request once.
-        const speedOptions = speedOptionsSupported.current
-          ? { generation_config: { max_output_tokens: 1024, temperature: 0.7 } }
-          : {};
-
-        let response = await fetch(INTERACTIONS_ENDPOINT, {
+        const response = await fetch(INTERACTIONS_ENDPOINT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-goog-api-key': currentKey ?? '',
           },
-          body: JSON.stringify({ model, input, ...speedOptions }),
+          body: JSON.stringify({ model, input }),
         });
-
-        if (!response.ok && response.status === 400 && speedOptionsSupported.current) {
-          speedOptionsSupported.current = false;
-          response = await fetch(INTERACTIONS_ENDPOINT, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': currentKey ?? '',
-            },
-            body: JSON.stringify({ model, input }),
-          });
-        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
@@ -578,31 +558,6 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : String(error);
-        const isNetworkError =
-          error instanceof TypeError ||
-          /failed to fetch|network ?error|load failed|networkerror|connection/i.test(rawMessage);
-
-        if (isNetworkError && networkRetryCount < 3) {
-          const delay = Math.min(2000 * Math.pow(2, networkRetryCount), 12000);
-          await new Promise(r => setTimeout(r, delay));
-          return makeApiCall({
-            alternateOrder,
-            tryKeyIndex,
-            model,
-            quotaRetryCount,
-            overloadRetryCount,
-            tempRateLimitRetryCount,
-            networkRetryCount: networkRetryCount + 1,
-          });
-        }
-
-        if (isNetworkError) {
-          throw new Error(
-            'নেটওয়ার্ক সংযোগে সমস্যা হচ্ছে (Failed to fetch)। ইন্টারনেট সংযোগ, VPN/ফায়ারওয়াল বা ব্রাউজার এক্সটেনশন চেক করে আবার চেষ্টা করুন।'
-          );
-        }
-
         if (overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
           await new Promise(r => setTimeout(r, delay));
@@ -613,7 +568,6 @@ export const useGeminiApi = () => {
             quotaRetryCount,
             overloadRetryCount: overloadRetryCount + 1,
             tempRateLimitRetryCount,
-            networkRetryCount,
           });
         }
         throw error;
