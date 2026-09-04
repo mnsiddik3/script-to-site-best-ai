@@ -7,7 +7,8 @@ import { ImageUpload } from '@/components/ImageUpload';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { ImageWithMetadata } from '@/components/ImageWithMetadata';
 import { PlatformSpecificExport } from '@/components/PlatformSpecificExport';
-import { useGeminiApi } from '@/hooks/useGeminiApi';
+import { useGeminiApi, GEMINI_MODEL_OPTIONS, DEFAULT_MODEL, type GeminiModel } from '@/hooks/useGeminiApi';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import heroImage from '@/assets/hero-image.jpg';
 
 function Index() {
@@ -35,6 +36,15 @@ function Index() {
     errorMessage?: string;
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [selectedModel, setSelectedModel] = useState<GeminiModel>(() => {
+    const saved = localStorage.getItem('gemini-model');
+    return (GEMINI_MODEL_OPTIONS.some(o => o.value === saved) ? saved : DEFAULT_MODEL) as GeminiModel;
+  });
+
+  const handleModelChange = (value: string) => {
+    setSelectedModel(value as GeminiModel);
+    localStorage.setItem('gemini-model', value);
+  };
 
   const { generateMetadata, loading, activeKeyIndex } = useGeminiApi();
 
@@ -73,7 +83,7 @@ function Index() {
         )
       );
 
-      const { result, error } = await generateMetadata(imageFile, apiKeys);
+      const { result, error } = await generateMetadata(imageFile, apiKeys, undefined, selectedModel);
       
       if (result) {
         setResults(prev => 
@@ -124,7 +134,7 @@ function Index() {
       )
     );
 
-    const { result, error } = await generateMetadata(image, apiKeys);
+    const { result, error } = await generateMetadata(image, apiKeys, undefined, selectedModel);
     if (result) {
       setResults(prev => prev.map((item, itemIndex) => itemIndex === index ? { image, ...result, selectedTitleIndex: 0, failed: false, errorMessage: undefined, processing: false } : item));
     } else {
@@ -229,6 +239,25 @@ function Index() {
         {/* Generate Button */}
         {selectedImages.length > 0 && hasValidKey && (
           <div className="text-center space-y-4">
+            <div className="max-w-md mx-auto text-left space-y-2">
+              <label className="text-sm font-medium text-foreground">AI মডেল নির্বাচন করুন</label>
+              <Select value={selectedModel} onValueChange={handleModelChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="মডেল বেছে নিন" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GEMINI_MODEL_OPTIONS.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label} — {option.hint}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
+              </p>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center">
               <Button
                 variant="brand"
