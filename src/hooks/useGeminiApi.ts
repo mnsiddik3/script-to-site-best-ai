@@ -13,13 +13,20 @@ interface MetadataResult {
 }
 
 // Interactions API supported models (https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
-type GeminiModel =
+export type GeminiModel =
   | 'gemini-3.6-flash'
   | 'gemini-3.5-flash'
   | 'gemini-flash-latest'
   | 'gemini-2.5-flash';
 
-const DEFAULT_MODEL: GeminiModel = 'gemini-3.6-flash';
+export const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string; hint: string }[] = [
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', hint: 'সেরা মান (ডিফল্ট)' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', hint: 'ভারসাম্যপূর্ণ' },
+  { value: 'gemini-flash-latest', label: 'Gemini Flash Latest', hint: 'সর্বশেষ ফ্ল্যাশ' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'সবচেয়ে দ্রুত ও হালকা' },
+];
+
+export const DEFAULT_MODEL: GeminiModel = 'gemini-3.6-flash';
 const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
@@ -111,12 +118,12 @@ const extractInteractionText = (data: any): string => {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 };
 
-const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
-  'gemini-3.6-flash': 'gemini-3.5-flash',
-  'gemini-3.5-flash': 'gemini-flash-latest',
-  'gemini-flash-latest': 'gemini-2.5-flash',
-  'gemini-2.5-flash': null,
-};
+// Build a fallback chain that starts with the user-selected model and then
+// walks through the remaining models in preference order.
+const buildModelChain = (startModel: GeminiModel): GeminiModel[] => [
+  startModel,
+  ...GEMINI_MODEL_OPTIONS.map(o => o.value).filter(m => m !== startModel),
+];
 
 // Clean symbols from keywords
 const cleanKeywords = (keywords: string[]): string[] => {
@@ -318,7 +325,8 @@ export const useGeminiApi = () => {
   const generateMetadata = async (
     imageFile: File,
     apiKeys: string[],
-    keyIndex?: number
+    keyIndex?: number,
+    preferredModel: GeminiModel = DEFAULT_MODEL
   ): Promise<{ result: MetadataResult | null; usedKeyIndex: number; error?: string }> => {
     // Key rotation: cycle through keys, REQUESTS_PER_KEY each, with pause between
     let currentKeyIndex = keyIndex ?? activeKeyIndex;
@@ -370,11 +378,16 @@ export const useGeminiApi = () => {
     }
 
     const isVideo = imageFile.type.startsWith('video/');
+    const modelChain = buildModelChain(preferredModel);
+    const nextModel = (m: GeminiModel): GeminiModel | null => {
+      const i = modelChain.indexOf(m);
+      return i >= 0 && i < modelChain.length - 1 ? modelChain[i + 1] : null;
+    };
 
     const makeApiCall = async ({
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
-      model = DEFAULT_MODEL as GeminiModel,
+      model = preferredModel,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -386,7 +399,7 @@ export const useGeminiApi = () => {
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
-        const isRateLimitedModel = model !== DEFAULT_MODEL;
+        const isRateLimitedModel = model !== modelChain[0];
 
         const mediaBlock = {
           type: contentType,
@@ -448,7 +461,7 @@ export const useGeminiApi = () => {
               });
             }
 
-            const fallbackModelForQuota = MODEL_FALLBACKS[model];
+            const fallbackModelForQuota = nextModel(model);
             if (fallbackModelForQuota) {
               const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
               if (firstValidKeyIndex !== -1) {
@@ -524,10 +537,10 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && MODEL_FALLBACKS[model]) {
+          if (isModelOverloaded && nextModel(model)) {
             const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
             if (firstValidKeyIndex !== -1) {
-              const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
+              const fallbackModel = nextModel(model) as GeminiModel;
               exhaustedKeys.current.clear();
               toast({
                 title: "🔄 Fallback মডেল চালু হয়েছে",
