@@ -329,7 +329,8 @@ export const useGeminiApi = () => {
   const generateMetadata = async (
     imageFile: File,
     apiKeys: string[],
-    keyIndex?: number
+    keyIndex?: number,
+    preferredModel: GeminiModel = DEFAULT_MODEL
   ): Promise<{ result: MetadataResult | null; usedKeyIndex: number; error?: string }> => {
     // Key rotation: cycle through keys, REQUESTS_PER_KEY each, with pause between
     let currentKeyIndex = keyIndex ?? activeKeyIndex;
@@ -385,7 +386,7 @@ export const useGeminiApi = () => {
     const makeApiCall = async ({
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
-      model = DEFAULT_MODEL as GeminiModel,
+      model = preferredModel,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -397,7 +398,7 @@ export const useGeminiApi = () => {
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
-        const isRateLimitedModel = model !== DEFAULT_MODEL;
+        const isRateLimitedModel = model !== preferredModel;
 
         const mediaBlock = {
           type: contentType,
@@ -586,7 +587,7 @@ export const useGeminiApi = () => {
     };
 
     try {
-      const { data, usedKeyIndex } = await makeApiCall();
+      const { data, usedKeyIndex } = await makeApiCall({ model: preferredModel });
       const text = extractInteractionText(data);
       if (!text) throw new Error('No response from API');
 
