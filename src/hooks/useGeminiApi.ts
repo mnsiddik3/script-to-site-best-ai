@@ -13,13 +13,23 @@ interface MetadataResult {
 }
 
 // Interactions API supported models (https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
-type GeminiModel =
+export type GeminiModel =
+  | 'gemini-3.8-flash'
   | 'gemini-3.6-flash'
   | 'gemini-3.5-flash'
   | 'gemini-flash-latest'
   | 'gemini-2.5-flash';
 
-const DEFAULT_MODEL: GeminiModel = 'gemini-3.6-flash';
+export const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string; hint: string }[] = [
+  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', hint: 'সর্বাধুনিক, সেরা মান' },
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', hint: 'ভালো মান, দ্রুত' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', hint: 'স্থিতিশীল' },
+  { value: 'gemini-flash-latest', label: 'Gemini Flash Latest', hint: 'সর্বশেষ স্টেবল' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'হালকা ও দ্রুত' },
+];
+
+export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
+
 const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
@@ -112,6 +122,7 @@ const extractInteractionText = (data: any): string => {
 };
 
 const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
+  'gemini-3.8-flash': 'gemini-3.6-flash',
   'gemini-3.6-flash': 'gemini-3.5-flash',
   'gemini-3.5-flash': 'gemini-flash-latest',
   'gemini-flash-latest': 'gemini-2.5-flash',
@@ -318,7 +329,8 @@ export const useGeminiApi = () => {
   const generateMetadata = async (
     imageFile: File,
     apiKeys: string[],
-    keyIndex?: number
+    keyIndex?: number,
+    preferredModel: GeminiModel = DEFAULT_MODEL
   ): Promise<{ result: MetadataResult | null; usedKeyIndex: number; error?: string }> => {
     // Key rotation: cycle through keys, REQUESTS_PER_KEY each, with pause between
     let currentKeyIndex = keyIndex ?? activeKeyIndex;
@@ -374,7 +386,7 @@ export const useGeminiApi = () => {
     const makeApiCall = async ({
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
-      model = DEFAULT_MODEL as GeminiModel,
+      model = preferredModel,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -386,7 +398,7 @@ export const useGeminiApi = () => {
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
-        const isRateLimitedModel = model !== DEFAULT_MODEL;
+        const isRateLimitedModel = model !== preferredModel;
 
         const mediaBlock = {
           type: contentType,
@@ -575,7 +587,7 @@ export const useGeminiApi = () => {
     };
 
     try {
-      const { data, usedKeyIndex } = await makeApiCall();
+      const { data, usedKeyIndex } = await makeApiCall({ model: preferredModel });
       const text = extractInteractionText(data);
       if (!text) throw new Error('No response from API');
 
