@@ -226,9 +226,30 @@ function Index() {
           onImagesSelect={setSelectedImages} 
         />
 
+        {/* Model Selector */}
+        <div className="max-w-md mx-auto text-left space-y-2">
+          <label className="text-sm font-medium text-foreground">AI মডেল নির্বাচন করুন</label>
+          <Select value={selectedModel} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="মডেল বেছে নিন" />
+            </SelectTrigger>
+            <SelectContent>
+              {GEMINI_MODEL_OPTIONS.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label} — {option.hint}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
+          </p>
+        </div>
+
         {/* Generate Button */}
         {selectedImages.length > 0 && hasValidKey && (
           <div className="text-center space-y-4">
+
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center">
               <Button
                 variant="brand"
