@@ -13,13 +13,23 @@ interface MetadataResult {
 }
 
 // Interactions API supported models (https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
-type GeminiModel =
+export type GeminiModel =
+  | 'gemini-3.8-flash'
   | 'gemini-3.6-flash'
   | 'gemini-3.5-flash'
   | 'gemini-flash-latest'
   | 'gemini-2.5-flash';
 
-const DEFAULT_MODEL: GeminiModel = 'gemini-3.6-flash';
+export const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string; hint: string }[] = [
+  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', hint: 'সর্বাধুনিক, সেরা মান' },
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', hint: 'ভালো মান, দ্রুত' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', hint: 'স্থিতিশীল' },
+  { value: 'gemini-flash-latest', label: 'Gemini Flash Latest', hint: 'সর্বশেষ স্টেবল' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'হালকা ও দ্রুত' },
+];
+
+export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
+
 const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
