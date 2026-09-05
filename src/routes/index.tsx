@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { Sparkles, Image as ImageIcon, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,14 +13,7 @@ import heroImage from '@/assets/hero-image.jpg';
 
 function Index() {
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
-  const [apiKeys, setApiKeys] = useState<string[]>(() => {
-    const saved = localStorage.getItem('gemini-api-keys');
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* fallback */ }
-    }
-    const legacy = localStorage.getItem('gemini-api-key');
-    return legacy ? [legacy] : [''];
-  });
+  const [apiKeys, setApiKeys] = useState<string[]>(['']);
   const [results, setResults] = useState<{
     title: string;
     titleScore?: number;
@@ -36,10 +29,25 @@ function Index() {
     errorMessage?: string;
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
-  const [selectedModel, setSelectedModel] = useState<GeminiModel>(() => {
-    const saved = localStorage.getItem('gemini-model');
-    return (GEMINI_MODEL_OPTIONS.some(o => o.value === saved) ? saved : DEFAULT_MODEL) as GeminiModel;
-  });
+  const [selectedModel, setSelectedModel] = useState<GeminiModel>(DEFAULT_MODEL);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('gemini-api-keys');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) setApiKeys(parsed);
+      } else {
+        const legacy = localStorage.getItem('gemini-api-key');
+        if (legacy) setApiKeys([legacy]);
+      }
+    } catch { /* ignore */ }
+
+    const savedModel = localStorage.getItem('gemini-model');
+    if (GEMINI_MODEL_OPTIONS.some(o => o.value === savedModel)) {
+      setSelectedModel(savedModel as GeminiModel);
+    }
+  }, []);
 
   const handleModelChange = (value: string) => {
     setSelectedModel(value as GeminiModel);
