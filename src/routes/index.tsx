@@ -254,11 +254,19 @@ function Index() {
             <SelectContent>
               {GEMINI_MODEL_OPTIONS.map(option => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label} — {option.hint}
+                  <span className="flex flex-col">
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      RPM {option.rpm} · TPM {(option.tpm / 1000).toLocaleString('en-US')}K · RPD {option.rpd}
+                    </span>
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            RPM = প্রতি মিনিটে কতগুলো রিকোয়েস্ট পাঠানো যাবে · TPM = প্রতি মিনিটে কতগুলো টোকেন প্রসেস হবে · RPD = প্রতি দিনে (২৪ ঘণ্টায়) সর্বোচ্চ কতগুলো রিকোয়েস্ট।
+          </p>
           <p className="text-xs text-muted-foreground">
             নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
           </p>
