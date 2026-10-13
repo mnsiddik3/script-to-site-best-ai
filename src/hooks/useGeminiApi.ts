@@ -401,6 +401,7 @@ export const useGeminiApi = () => {
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
       model = preferredModel,
+      allowOverloadRetry = overloadRetryEnabled,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -533,7 +534,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && overloadRetryCount < 5) {
+          if (isModelOverloaded && allowOverloadRetry && overloadRetryCount < 5) {
             const delay = retryDelayMs ?? Math.min(4000 * Math.pow(2, overloadRetryCount), 30000);
             toast({
               title: "API Overloaded",
