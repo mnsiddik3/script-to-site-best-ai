@@ -432,12 +432,15 @@ export const useGeminiApi = () => {
           headers: {
             'Content-Type': 'application/json',
             'x-goog-api-key': currentKey ?? '',
+            'Api-Revision': '2026-05-20',
           },
           body: JSON.stringify({ model, input }),
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
+          const rawErrorText = await response.text().catch(() => '');
+          let errorData: GeminiErrorResponse | null = null;
+          try { errorData = rawErrorText ? JSON.parse(rawErrorText) : null; } catch { /* not JSON */ }
           const errorMessage = errorData?.error?.message?.toLowerCase() ?? '';
           const errorStatus = errorData?.error?.status ?? '';
           const retryDelayRaw = errorData?.error?.details?.find(detail => detail.retryDelay)?.retryDelay;
