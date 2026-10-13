@@ -13,19 +13,32 @@ interface MetadataResult {
 }
 
 // Interactions API supported models (https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
+// Rate limits follow Google's free-tier table: RPM = requests per minute,
+// TPM = tokens per minute, RPD = requests per day.
 export type GeminiModel =
   | 'gemini-3.8-flash'
+  | 'gemini-3.7-flash'
   | 'gemini-3.6-flash'
-  | 'gemini-3.5-flash'
-  | 'gemini-flash-latest'
+  | 'gemini-3.5-flash-lite'
+  | 'gemini-3.1-flash-lite'
   | 'gemini-2.5-flash';
 
-export const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string; hint: string }[] = [
-  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', hint: 'সর্বাধুনিক, সেরা মান' },
-  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', hint: 'ভালো মান, দ্রুত' },
-  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', hint: 'স্থিতিশীল' },
-  { value: 'gemini-flash-latest', label: 'Gemini Flash Latest', hint: 'সর্বশেষ স্টেবল' },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'হালকা ও দ্রুত' },
+export interface GeminiModelOption {
+  value: GeminiModel;
+  label: string;
+  hint: string;
+  rpm: number;
+  tpm: number;
+  rpd: number;
+}
+
+export const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
+  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', hint: 'সর্বাধুনিক, সেরা মান', rpm: 5, tpm: 250_000, rpd: 20 },
+  { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', hint: 'নতুন প্রজন্ম, দ্রুত', rpm: 5, tpm: 250_000, rpd: 20 },
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', hint: 'ভালো মান, দ্রুত', rpm: 5, tpm: 250_000, rpd: 20 },
+  { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', hint: 'হালকা, বেশি লিমিট', rpm: 15, tpm: 250_000, rpd: 500 },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', hint: 'হালকা, সর্বোচ্চ লিমিট', rpm: 15, tpm: 250_000, rpd: 500 },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: 'পুরনো স্থিতিশীল ভার্সন', rpm: 5, tpm: 250_000, rpd: 20 },
 ];
 
 export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
@@ -122,10 +135,11 @@ const extractInteractionText = (data: any): string => {
 };
 
 const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
-  'gemini-3.8-flash': 'gemini-3.6-flash',
-  'gemini-3.6-flash': 'gemini-3.5-flash',
-  'gemini-3.5-flash': 'gemini-flash-latest',
-  'gemini-flash-latest': 'gemini-2.5-flash',
+  'gemini-3.8-flash': 'gemini-3.7-flash',
+  'gemini-3.7-flash': 'gemini-3.6-flash',
+  'gemini-3.6-flash': 'gemini-3.5-flash-lite',
+  'gemini-3.5-flash-lite': 'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite': 'gemini-2.5-flash',
   'gemini-2.5-flash': null,
 };
 
