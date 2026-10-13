@@ -282,6 +282,23 @@ function Index() {
           </p>
         </div>
 
+        {/* API Overload Retry Toggle */}
+        <div className="max-w-md mx-auto flex items-center justify-between gap-4 rounded-lg border bg-card p-4">
+          <div className="space-y-1">
+            <label htmlFor="overload-retry" className="text-sm font-medium text-foreground">
+              API Overload Retry
+            </label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              ON থাকলে API overloaded হলে নির্দিষ্ট সময় অপেক্ষা করে আবার চেষ্টা (retry) করবে; OFF থাকলে retry করবে না।
+            </p>
+          </div>
+          <Switch
+            id="overload-retry"
+            checked={overloadRetry}
+            onCheckedChange={handleOverloadRetryChange}
+          />
+        </div>
+
         {/* Generate Button */}
         {selectedImages.length > 0 && hasValidKey && (
           <div className="text-center space-y-4">
