@@ -49,11 +49,19 @@ function Index() {
     if (GEMINI_MODEL_OPTIONS.some(o => o.value === savedModel)) {
       setSelectedModel(savedModel as GeminiModel);
     }
+
+    const savedOverloadRetry = localStorage.getItem('gemini-overload-retry');
+    if (savedOverloadRetry !== null) setOverloadRetry(savedOverloadRetry === 'true');
   }, []);
 
   const handleModelChange = (value: string) => {
     setSelectedModel(value as GeminiModel);
     localStorage.setItem('gemini-model', value);
+  };
+
+  const handleOverloadRetryChange = (checked: boolean) => {
+    setOverloadRetry(checked);
+    localStorage.setItem('gemini-overload-retry', String(checked));
   };
 
   const { generateMetadata, loading, activeKeyIndex } = useGeminiApi();
@@ -93,7 +101,7 @@ function Index() {
         )
       );
 
-      const { result, error } = await generateMetadata(imageFile, apiKeys, undefined, selectedModel);
+      const { result, error } = await generateMetadata(imageFile, apiKeys, undefined, selectedModel, overloadRetry);
       
       if (result) {
         setResults(prev => 
@@ -144,7 +152,7 @@ function Index() {
       )
     );
 
-    const { result, error } = await generateMetadata(image, apiKeys, undefined, selectedModel);
+    const { result, error } = await generateMetadata(image, apiKeys, undefined, selectedModel, overloadRetry);
     if (result) {
       setResults(prev => prev.map((item, itemIndex) => itemIndex === index ? { image, ...result, selectedTitleIndex: 0, failed: false, errorMessage: undefined, processing: false } : item));
     } else {
