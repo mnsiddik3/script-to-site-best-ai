@@ -344,7 +344,8 @@ export const useGeminiApi = () => {
     imageFile: File,
     apiKeys: string[],
     keyIndex?: number,
-    preferredModel: GeminiModel = DEFAULT_MODEL
+    preferredModel: GeminiModel = DEFAULT_MODEL,
+    overloadRetryEnabled = true
   ): Promise<{ result: MetadataResult | null; usedKeyIndex: number; error?: string }> => {
     // Key rotation: cycle through keys, REQUESTS_PER_KEY each, with pause between
     let currentKeyIndex = keyIndex ?? activeKeyIndex;
@@ -401,6 +402,7 @@ export const useGeminiApi = () => {
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
       model = preferredModel,
+      allowOverloadRetry = overloadRetryEnabled,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -533,7 +535,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && overloadRetryCount < 5) {
+          if (isModelOverloaded && allowOverloadRetry && overloadRetryCount < 5) {
             const delay = retryDelayMs ?? Math.min(4000 * Math.pow(2, overloadRetryCount), 30000);
             toast({
               title: "API Overloaded",
@@ -550,7 +552,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && MODEL_FALLBACKS[model]) {
+          if (isModelOverloaded && allowOverloadRetry && MODEL_FALLBACKS[model]) {
             const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
             if (firstValidKeyIndex !== -1) {
               const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
@@ -584,7 +586,7 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
-        if (overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
+        if (allowOverloadRetry && overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
           await new Promise(r => setTimeout(r, delay));
           return makeApiCall({

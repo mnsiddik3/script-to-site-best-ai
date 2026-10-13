@@ -9,6 +9,7 @@ import { ImageWithMetadata } from '@/components/ImageWithMetadata';
 import { PlatformSpecificExport } from '@/components/PlatformSpecificExport';
 import { useGeminiApi, GEMINI_MODEL_OPTIONS, DEFAULT_MODEL, type GeminiModel } from '@/hooks/useGeminiApi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import heroImage from '@/assets/hero-image.jpg';
 
 function Index() {
@@ -30,6 +31,7 @@ function Index() {
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [selectedModel, setSelectedModel] = useState<GeminiModel>(DEFAULT_MODEL);
+  const [overloadRetry, setOverloadRetry] = useState(true);
 
   useEffect(() => {
     try {
@@ -47,11 +49,19 @@ function Index() {
     if (GEMINI_MODEL_OPTIONS.some(o => o.value === savedModel)) {
       setSelectedModel(savedModel as GeminiModel);
     }
+
+    const savedOverloadRetry = localStorage.getItem('gemini-overload-retry');
+    if (savedOverloadRetry !== null) setOverloadRetry(savedOverloadRetry === 'true');
   }, []);
 
   const handleModelChange = (value: string) => {
     setSelectedModel(value as GeminiModel);
     localStorage.setItem('gemini-model', value);
+  };
+
+  const handleOverloadRetryChange = (checked: boolean) => {
+    setOverloadRetry(checked);
+    localStorage.setItem('gemini-overload-retry', String(checked));
   };
 
   const { generateMetadata, loading, activeKeyIndex } = useGeminiApi();
@@ -91,7 +101,7 @@ function Index() {
         )
       );
 
-      const { result, error } = await generateMetadata(imageFile, apiKeys, undefined, selectedModel);
+      const { result, error } = await generateMetadata(imageFile, apiKeys, undefined, selectedModel, overloadRetry);
       
       if (result) {
         setResults(prev => 
@@ -142,7 +152,7 @@ function Index() {
       )
     );
 
-    const { result, error } = await generateMetadata(image, apiKeys, undefined, selectedModel);
+    const { result, error } = await generateMetadata(image, apiKeys, undefined, selectedModel, overloadRetry);
     if (result) {
       setResults(prev => prev.map((item, itemIndex) => itemIndex === index ? { image, ...result, selectedTitleIndex: 0, failed: false, errorMessage: undefined, processing: false } : item));
     } else {
@@ -270,6 +280,23 @@ function Index() {
           <p className="text-xs text-muted-foreground">
             নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
           </p>
+        </div>
+
+        {/* API Overload Retry Toggle */}
+        <div className="max-w-md mx-auto flex items-center justify-between gap-4 rounded-lg border bg-card p-4">
+          <div className="space-y-1">
+            <label htmlFor="overload-retry" className="text-sm font-medium text-foreground">
+              API Overload Retry
+            </label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              ON থাকলে API overloaded হলে নির্দিষ্ট সময় অপেক্ষা করে আবার চেষ্টা (retry) করবে; OFF থাকলে retry করবে না।
+            </p>
+          </div>
+          <Switch
+            id="overload-retry"
+            checked={overloadRetry}
+            onCheckedChange={handleOverloadRetryChange}
+          />
         </div>
 
         {/* Generate Button */}
