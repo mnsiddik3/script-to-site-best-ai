@@ -9,6 +9,7 @@ import { ImageWithMetadata } from '@/components/ImageWithMetadata';
 import { PlatformSpecificExport } from '@/components/PlatformSpecificExport';
 import { useGeminiApi, GEMINI_MODEL_OPTIONS, DEFAULT_MODEL, type GeminiModel } from '@/hooks/useGeminiApi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import heroImage from '@/assets/hero-image.jpg';
 
 function Index() {
@@ -30,6 +31,7 @@ function Index() {
   }[]>([]);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [selectedModel, setSelectedModel] = useState<GeminiModel>(DEFAULT_MODEL);
+  const [overloadRetry, setOverloadRetry] = useState(true);
 
   useEffect(() => {
     try {
