@@ -585,7 +585,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          throw new Error(errorData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
+          throw new Error(errorData?.error?.message || `API Error: ${response.status}`);
         }
 
         return { data: JSON.parse(response.bodyText), usedKeyIndex: tryKeyIndex };
