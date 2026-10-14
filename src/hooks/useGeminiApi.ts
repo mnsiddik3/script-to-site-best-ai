@@ -402,7 +402,6 @@ export const useGeminiApi = () => {
       tryKeyIndex = currentKeyIndex,
       model = preferredModel,
       quotaRetryCount = 0,
-      overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
     } = {}): Promise<any> => {
       try {
@@ -528,25 +527,7 @@ export const useGeminiApi = () => {
               tryKeyIndex,
               model,
               quotaRetryCount,
-              overloadRetryCount,
               tempRateLimitRetryCount: tempRateLimitRetryCount + 1,
-            });
-          }
-
-          if (isModelOverloaded && overloadRetryCount < 5) {
-            const delay = retryDelayMs ?? Math.min(4000 * Math.pow(2, overloadRetryCount), 30000);
-            toast({
-              title: "API Overloaded",
-              description: `${Math.round(delay / 1000)}s অপেক্ষা করে একই মডেলে retry করা হচ্ছে`,
-            });
-            await new Promise(r => setTimeout(r, delay));
-            return makeApiCall({
-              alternateOrder,
-              tryKeyIndex,
-              model,
-              quotaRetryCount,
-              overloadRetryCount: overloadRetryCount + 1,
-              tempRateLimitRetryCount,
             });
           }
 
@@ -574,7 +555,6 @@ export const useGeminiApi = () => {
               tryKeyIndex,
               model,
               quotaRetryCount,
-              overloadRetryCount,
               tempRateLimitRetryCount,
             });
           }
@@ -584,18 +564,6 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
-        if (overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
-          const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
-          await new Promise(r => setTimeout(r, delay));
-          return makeApiCall({
-            alternateOrder,
-            tryKeyIndex,
-            model,
-            quotaRetryCount,
-            overloadRetryCount: overloadRetryCount + 1,
-            tempRateLimitRetryCount,
-          });
-        }
         throw error;
       }
     };
