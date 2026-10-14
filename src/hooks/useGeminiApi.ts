@@ -427,18 +427,19 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        const response = await fetch(INTERACTIONS_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': currentKey ?? '',
-            'Api-Revision': '2026-05-20',
-          },
-          body: JSON.stringify({ model, input }),
+        // Proxy through our server: direct browser calls to the Interactions
+        // API fail with "Failed to fetch" due to CORS.
+        const proxyResult = await callGeminiInteraction({
+          data: { apiKey: currentKey ?? '', model, input },
         });
+        const response = {
+          ok: proxyResult.ok,
+          status: proxyResult.status,
+          bodyText: proxyResult.bodyText,
+        };
 
         if (!response.ok) {
-          const rawErrorText = await response.text().catch(() => '');
+          const rawErrorText = response.bodyText;
           let errorData: GeminiErrorResponse | null = null;
           try { errorData = rawErrorText ? JSON.parse(rawErrorText) : null; } catch { /* not JSON */ }
           const errorMessage = errorData?.error?.message?.toLowerCase() ?? '';
