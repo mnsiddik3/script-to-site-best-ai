@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { optimizeImageForGemini, convertVideoToBase64 } from '@/lib/imageUtils';
+import { callGeminiInteraction } from '@/lib/gemini.functions';
 
 interface MetadataResult {
   title: string;
@@ -43,7 +44,6 @@ export const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
 
 export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
 
-const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
   error?: {
@@ -427,18 +427,19 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        const response = await fetch(INTERACTIONS_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': currentKey ?? '',
-            'Api-Revision': '2026-05-20',
-          },
-          body: JSON.stringify({ model, input }),
+        // Proxy through our server: direct browser calls to the Interactions
+        // API fail with "Failed to fetch" due to CORS.
+        const proxyResult = await callGeminiInteraction({
+          data: { apiKey: currentKey ?? '', model, input },
         });
+        const response = {
+          ok: proxyResult.ok,
+          status: proxyResult.status,
+          bodyText: proxyResult.bodyText,
+        };
 
         if (!response.ok) {
-          const rawErrorText = await response.text().catch(() => '');
+          const rawErrorText = response.bodyText;
           let errorData: GeminiErrorResponse | null = null;
           try { errorData = rawErrorText ? JSON.parse(rawErrorText) : null; } catch { /* not JSON */ }
           const errorMessage = errorData?.error?.message?.toLowerCase() ?? '';
@@ -584,10 +585,10 @@ export const useGeminiApi = () => {
             });
           }
 
-          throw new Error(errorData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
+          throw new Error(errorData?.error?.message || `API Error: ${response.status}`);
         }
 
-        return { data: await response.json(), usedKeyIndex: tryKeyIndex };
+        return { data: JSON.parse(response.bodyText), usedKeyIndex: tryKeyIndex };
       } catch (error) {
         if (allowOverloadRetry && overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
