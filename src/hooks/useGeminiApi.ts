@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { optimizeImageForGemini, convertVideoToBase64 } from '@/lib/imageUtils';
-import { callGeminiInteraction } from '@/lib/gemini.functions';
 
 interface MetadataResult {
   title: string;
@@ -44,6 +43,7 @@ export const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
 
 export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
 
+const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
   error?: {
@@ -344,8 +344,7 @@ export const useGeminiApi = () => {
     imageFile: File,
     apiKeys: string[],
     keyIndex?: number,
-    preferredModel: GeminiModel = DEFAULT_MODEL,
-    overloadRetryEnabled = true
+    preferredModel: GeminiModel = DEFAULT_MODEL
   ): Promise<{ result: MetadataResult | null; usedKeyIndex: number; error?: string }> => {
     // Key rotation: cycle through keys, REQUESTS_PER_KEY each, with pause between
     let currentKeyIndex = keyIndex ?? activeKeyIndex;
@@ -402,7 +401,6 @@ export const useGeminiApi = () => {
       alternateOrder = false,
       tryKeyIndex = currentKeyIndex,
       model = preferredModel,
-      allowOverloadRetry = overloadRetryEnabled,
       quotaRetryCount = 0,
       overloadRetryCount = 0,
       tempRateLimitRetryCount = 0,
@@ -427,21 +425,17 @@ export const useGeminiApi = () => {
         if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        // Proxy through our server: direct browser calls to the Interactions
-        // API fail with "Failed to fetch" due to CORS.
-        const proxyResult = await callGeminiInteraction({
-          data: { apiKey: currentKey ?? '', model, input },
+        const response = await fetch(INTERACTIONS_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': currentKey ?? '',
+          },
+          body: JSON.stringify({ model, input }),
         });
-        const response = {
-          ok: proxyResult.ok,
-          status: proxyResult.status,
-          bodyText: proxyResult.bodyText,
-        };
 
         if (!response.ok) {
-          const rawErrorText = response.bodyText;
-          let errorData: GeminiErrorResponse | null = null;
-          try { errorData = rawErrorText ? JSON.parse(rawErrorText) : null; } catch { /* not JSON */ }
+          const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
           const errorMessage = errorData?.error?.message?.toLowerCase() ?? '';
           const errorStatus = errorData?.error?.status ?? '';
           const retryDelayRaw = errorData?.error?.details?.find(detail => detail.retryDelay)?.retryDelay;
@@ -539,7 +533,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && allowOverloadRetry && overloadRetryCount < 5) {
+          if (isModelOverloaded && overloadRetryCount < 5) {
             const delay = retryDelayMs ?? Math.min(4000 * Math.pow(2, overloadRetryCount), 30000);
             toast({
               title: "API Overloaded",
@@ -556,7 +550,7 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && allowOverloadRetry && MODEL_FALLBACKS[model]) {
+          if (isModelOverloaded && MODEL_FALLBACKS[model]) {
             const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
             if (firstValidKeyIndex !== -1) {
               const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
@@ -585,12 +579,12 @@ export const useGeminiApi = () => {
             });
           }
 
-          throw new Error(errorData?.error?.message || `API Error: ${response.status}`);
+          throw new Error(errorData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
         }
 
-        return { data: JSON.parse(response.bodyText), usedKeyIndex: tryKeyIndex };
+        return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
-        if (allowOverloadRetry && overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
+        if (overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
           await new Promise(r => setTimeout(r, delay));
           return makeApiCall({
