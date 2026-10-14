@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { optimizeImageForGemini, convertVideoToBase64 } from '@/lib/imageUtils';
+import { callGeminiInteraction } from '@/lib/gemini.functions';
 
 interface MetadataResult {
   title: string;
@@ -43,7 +44,6 @@ export const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
 
 export const DEFAULT_MODEL: GeminiModel = 'gemini-3.8-flash';
 
-const INTERACTIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 interface GeminiErrorResponse {
   error?: {
@@ -588,7 +588,7 @@ export const useGeminiApi = () => {
           throw new Error(errorData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
         }
 
-        return { data: await response.json(), usedKeyIndex: tryKeyIndex };
+        return { data: JSON.parse(response.bodyText), usedKeyIndex: tryKeyIndex };
       } catch (error) {
         if (allowOverloadRetry && overloadRetryCount < 3 && error instanceof Error && error.message.includes('503')) {
           const delay = Math.min(Math.pow(2, overloadRetryCount) * 2000, 15000);
