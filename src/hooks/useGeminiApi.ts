@@ -532,10 +532,30 @@ export const useGeminiApi = () => {
             });
           }
 
-          if (isModelOverloaded && MODEL_FALLBACKS[model]) {
+          if (isModelOverloaded) {
+            // Overload/limit: first try another API key on the SAME model,
+            // cycling through every valid key before falling to the next model.
+            const validKeyCount = apiKeys.filter(k => k.trim()).length;
+            const nextKey = getNextAvailableKey(apiKeys, tryKeyIndex);
+            if (nextKey !== -1 && nextKey !== tryKeyIndex && overloadKeyCount < validKeyCount) {
+              toast({
+                title: "🔄 API Key সুইচ হচ্ছে",
+                description: `${model} overloaded/limit → একই মডেলে Key ${nextKey + 1} দিয়ে আবার চেষ্টা হচ্ছে`,
+              });
+              setActiveKeyIndex(nextKey);
+              return makeApiCall({
+                alternateOrder,
+                tryKeyIndex: nextKey,
+                model,
+                quotaRetryCount,
+                tempRateLimitRetryCount,
+                overloadKeyCount: overloadKeyCount + 1,
+              });
+            }
+
+            const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
             const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
-            if (firstValidKeyIndex !== -1) {
-              const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
+            if (firstValidKeyIndex !== -1 && fallbackModel) {
               exhaustedKeys.current.clear();
               toast({
                 title: "🔄 Fallback মডেল চালু হয়েছে",
