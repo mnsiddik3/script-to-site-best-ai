@@ -403,6 +403,7 @@ export const useGeminiApi = () => {
       model = preferredModel,
       quotaRetryCount = 0,
       tempRateLimitRetryCount = 0,
+      overloadKeyCount = 0,
     } = {}): Promise<any> => {
       try {
         const { base64Data, mimeType } = isVideo
