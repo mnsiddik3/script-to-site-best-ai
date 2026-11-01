@@ -7,6 +7,7 @@ import { ImageUpload } from '@/components/ImageUpload';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { ImageWithMetadata } from '@/components/ImageWithMetadata';
 import { PlatformSpecificExport } from '@/components/PlatformSpecificExport';
+import { AiErrorDoctor } from '@/components/AiErrorDoctor';
 import { useGeminiApi, GEMINI_MODEL_OPTIONS, DEFAULT_MODEL, type GeminiModel } from '@/hooks/useGeminiApi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import heroImage from '@/assets/hero-image.jpg';
@@ -62,6 +63,8 @@ function Index() {
   };
 
   const hasValidKey = apiKeys.some(k => k.trim());
+
+  const lastError = [...results].reverse().find(r => r.failed && r.errorMessage)?.errorMessage;
 
   const handleGenerate = async () => {
     if (!selectedImages.length || !hasValidKey) return;
@@ -270,6 +273,11 @@ function Index() {
           <p className="text-xs text-muted-foreground">
             নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
           </p>
+        </div>
+
+        {/* AI Error Doctor */}
+        <div className="max-w-2xl mx-auto">
+          <AiErrorDoctor lastError={lastError} />
         </div>
 
         {/* Generate Button */}
