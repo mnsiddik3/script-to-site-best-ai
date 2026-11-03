@@ -58,21 +58,21 @@ export function AiErrorDoctor({ lastError }: { lastError?: string }) {
 
   return (
     <Card className="border-brand-primary/20">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-          <Bot className="h-5 w-5 text-brand-primary" />
+      <CardHeader className="px-4 pt-4 pb-2 space-y-1">
+        <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+          <Bot className="h-4 w-4 text-brand-primary" />
           AI এরর ডাক্তার
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-xs">
           মডেল, API Key বা quota/overload-সংক্রান্ত error log পেস্ট করুন — AI সমস্যার
           কারণ ও সমাধানের পরামর্শ বাংলায় দেবে।
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>সমস্যার ধরন</Label>
+      <CardContent className="px-4 pb-4 space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">সমস্যার ধরন</Label>
           <Select value={problemType} onValueChange={(v) => setProblemType(v as ProblemType)}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full h-9">
               <SelectValue placeholder="সমস্যার ধরন বেছে নিন" />
             </SelectTrigger>
             <SelectContent>
@@ -85,13 +85,13 @@ export function AiErrorDoctor({ lastError }: { lastError?: string }) {
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label>Error log</Label>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Error log</Label>
           <Textarea
             value={errorLog}
             onChange={(e) => setErrorLog(e.target.value)}
-            placeholder={'যেমন:\n{\n  "error": {\n    "code": 429,\n    "message": "RESOURCE_EXHAUSTED ...",\n    "status": "RESOURCE_EXHAUSTED"\n  }\n}'}
-            rows={7}
+            placeholder={'{\n  "code": 429,\n  "message": "RESOURCE_EXHAUSTED",\n  "status": "RESOURCE_EXHAUSTED"\n}'}
+            rows={5}
             className="font-mono text-xs"
           />
           {lastError && (
