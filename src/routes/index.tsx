@@ -67,6 +67,8 @@ function Index() {
 
   const lastError = [...results].reverse().find(r => r.failed && r.errorMessage)?.errorMessage;
 
+  const selectedOption = GEMINI_MODEL_OPTIONS.find(o => o.value === selectedModel) ?? GEMINI_MODEL_OPTIONS[0];
+
   const handleGenerate = async () => {
     if (!selectedImages.length || !hasValidKey) return;
 
