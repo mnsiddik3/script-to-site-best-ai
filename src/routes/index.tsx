@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { Sparkles, Image as ImageIcon, Zap } from 'lucide-react';
+import { Sparkles, Image as ImageIcon, Zap, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImageUpload } from '@/components/ImageUpload';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { ImageWithMetadata } from '@/components/ImageWithMetadata';
