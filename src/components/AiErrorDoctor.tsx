@@ -90,7 +90,7 @@ export function AiErrorDoctor({ lastError }: { lastError?: string }) {
           <Textarea
             value={errorLog}
             onChange={(e) => setErrorLog(e.target.value)}
-            placeholder={'যেমন:\n{\n  "error": {\n    "code": 429,\n    "message": "RESOURCE_EXHAUSTED ...",\n    "status": "RESOURCE_EXHAUSTED"\n  }\n}'}
+            placeholder={'{\n  "code": 429,\n  "message": "RESOURCE_EXHAUSTED",\n  "status": "RESOURCE_EXHAUSTED"\n}'}
             rows={5}
             className="font-mono text-xs"
           />
