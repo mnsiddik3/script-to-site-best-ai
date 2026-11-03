@@ -248,36 +248,59 @@ function Index() {
           onImagesSelect={setSelectedImages} 
         />
 
-        {/* Model Selector */}
-        <div className="max-w-md mx-auto text-left space-y-2">
-          <label className="text-sm font-medium text-foreground">AI মডেল নির্বাচন করুন</label>
-          <Select value={selectedModel} onValueChange={handleModelChange}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="মডেল বেছে নিন" />
-            </SelectTrigger>
-            <SelectContent>
-              {GEMINI_MODEL_OPTIONS.map(option => (
-                <SelectItem key={option.value} value={option.value}>
-                  <span className="flex flex-col">
-                    <span className="font-medium">{option.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      RPM {option.rpm} · TPM {(option.tpm / 1000).toLocaleString('en-US')}K · RPD {option.rpd}
-                    </span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            RPM = প্রতি মিনিটে কতগুলো রিকোয়েস্ট পাঠানো যাবে · TPM = প্রতি মিনিটে কতগুলো টোকেন প্রসেস হবে · RPD = প্রতি দিনে (২৪ ঘণ্টায়) সর্বোচ্চ কতগুলো রিকোয়েস্ট।
-          </p>
-          <p className="text-xs text-muted-foreground">
-            নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
-          </p>
-        </div>
+        {/* AI Settings: Model Selector + AI Error Doctor */}
+        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* Model Selector */}
+          <Card className="border-brand-primary/20 h-full">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Brain className="h-5 w-5 text-brand-primary" />
+                AI মডেল নির্বাচন
+              </CardTitle>
+              <CardDescription>
+                প্রথমে যে মডেল বেছে নেবেন সেটিই কাজ করবে; লিমিট বা ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Select value={selectedModel} onValueChange={handleModelChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="মডেল বেছে নিন" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GEMINI_MODEL_OPTIONS.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <span className="flex flex-col">
+                        <span className="font-medium">{option.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          RPM {option.rpm} · TPM {(option.tpm / 1000).toLocaleString('en-US')}K · RPD {option.rpd}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-        {/* AI Error Doctor */}
-        <div className="max-w-2xl mx-auto">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { term: 'RPM', value: selectedOption.rpm, desc: 'প্রতি মিনিটে রিকোয়েস্ট' },
+                  { term: 'TPM', value: `${(selectedOption.tpm / 1000).toLocaleString('en-US')}K`, desc: 'প্রতি মিনিটে টোকেন' },
+                  { term: 'RPD', value: selectedOption.rpd, desc: 'দিনে সর্বোচ্চ রিকোয়েস্ট' },
+                ].map(stat => (
+                  <div key={stat.term} className="rounded-lg border bg-muted/40 px-2 py-2.5 text-center">
+                    <p className="text-[11px] font-semibold text-brand-primary">{stat.term}</p>
+                    <p className="text-sm font-bold text-foreground">{stat.value}</p>
+                    <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{stat.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                RPM = প্রতি মিনিটে কতবার রিকোয়েস্ট · TPM = প্রতি মিনিটে কত টোকেন প্রসেস হবে · RPD = ২৪ ঘণ্টায় সর্বোচ্চ কতগুলো রিকোয়েস্ট। উপরের সংখ্যাগুলো নির্বাচিত মডেলের লিমিট।
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* AI Error Doctor */}
           <AiErrorDoctor lastError={lastError} />
         </div>
 
