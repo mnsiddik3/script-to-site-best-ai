@@ -143,6 +143,28 @@ const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
   'gemini-2.5-flash': null,
 };
 
+export const getNextGeminiAttempt = (
+  apiKeys: string[],
+  currentKeyIndex: number,
+  model: GeminiModel,
+  exhaustedKeyIndices: Set<number>,
+): { keyIndex: number; model: GeminiModel } | null => {
+  for (let offset = 1; offset <= apiKeys.length; offset++) {
+    const keyIndex = (currentKeyIndex + offset) % apiKeys.length;
+    if (apiKeys[keyIndex]?.trim() && !exhaustedKeyIndices.has(keyIndex)) {
+      return { keyIndex, model };
+    }
+  }
+
+  const fallbackModel = MODEL_FALLBACKS[model];
+  const firstValidKeyIndex = apiKeys.findIndex((key) => key.trim());
+  if (fallbackModel && firstValidKeyIndex !== -1) {
+    return { keyIndex: firstValidKeyIndex, model: fallbackModel };
+  }
+
+  return null;
+};
+
 // Clean symbols from keywords
 const cleanKeywords = (keywords: string[]): string[] => {
   return keywords.map(k => k.replace(/[^\w\s]/g, '').trim()).filter(k => k.length > 0);
@@ -403,7 +425,6 @@ export const useGeminiApi = () => {
       model = preferredModel,
       quotaRetryCount = 0,
       tempRateLimitRetryCount = 0,
-      overloadKeyCount = 0,
     } = {}): Promise<any> => {
       try {
         const { base64Data, mimeType } = isVideo
@@ -456,116 +477,55 @@ export const useGeminiApi = () => {
             (hasMinuteQuotaViolation || Boolean(retryDelayMs));
           const isModelOverloaded = response.status === 503 || errorStatus === 'UNAVAILABLE' || isHighDemand;
 
-          if (isQuotaExhausted) {
+          if (isQuotaExhausted || isTemporaryRateLimit) {
             exhaustedKeys.current.add(tryKeyIndex);
-            const nextKey = getNextAvailableKey(apiKeys, tryKeyIndex);
+            const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
 
-            if (nextKey !== -1 && nextKey !== tryKeyIndex) {
+            if (nextAttempt) {
+              const changedModel = nextAttempt.model !== model;
               toast({
-                title: "🔄 API Key সুইচ হচ্ছে",
-                description: `Key ${tryKeyIndex + 1} limit শেষ → Key ${nextKey + 1} ব্যবহার হচ্ছে`,
+                title: changedModel ? "🔄 Fallback মডেলে সুইচ হচ্ছে" : "🔄 API Key সুইচ হচ্ছে",
+                description: changedModel
+                  ? `${model} quota/limit শেষ → ${nextAttempt.model} ট্রাই হচ্ছে`
+                  : `Key ${tryKeyIndex + 1} limit শেষ → Key ${nextAttempt.keyIndex + 1} ব্যবহার হচ্ছে`,
               });
-              setActiveKeyIndex(nextKey);
+              if (changedModel) exhaustedKeys.current.clear();
+              setActiveKeyIndex(nextAttempt.keyIndex);
               return makeApiCall({
                 alternateOrder,
-                tryKeyIndex: nextKey,
-                model,
-                quotaRetryCount: quotaRetryCount + 1,
-              });
-            }
-
-            const fallbackModelForQuota = MODEL_FALLBACKS[model];
-            if (fallbackModelForQuota) {
-              const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
-              if (firstValidKeyIndex !== -1) {
-                exhaustedKeys.current.clear();
-                toast({
-                  title: "🔄 Fallback মডেলে সুইচ হচ্ছে",
-                  description: `${model} quota/limit → ${fallbackModelForQuota} ট্রাই হচ্ছে`,
-                });
-                setActiveKeyIndex(firstValidKeyIndex);
-                return makeApiCall({
-                  alternateOrder,
-                  tryKeyIndex: firstValidKeyIndex,
-                  model: fallbackModelForQuota,
-                });
-              }
-            }
-
-            if (!hasDailyQuotaViolation && quotaRetryCount < 2) {
-              const delay = retryDelayMs ?? RATE_LIMIT.retryOn429;
-              toast({
-                title: "⏳ Quota reset এর জন্য অপেক্ষা",
-                description: `${Math.round(delay / 1000)}s পরে আবার চেষ্টা করা হবে`,
-              });
-              exhaustedKeys.current.clear();
-              await new Promise(r => setTimeout(r, delay));
-              const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
-              return makeApiCall({
-                alternateOrder,
-                tryKeyIndex: firstValidKeyIndex === -1 ? tryKeyIndex : firstValidKeyIndex,
-                model,
-                quotaRetryCount: quotaRetryCount + 1,
+                tryKeyIndex: nextAttempt.keyIndex,
+                model: nextAttempt.model,
               });
             }
 
             throw new Error(
               hasDailyQuotaViolation
                 ? 'সব API Key-এর daily quota শেষ। নতুন API Key দিন বা quota reset হওয়া পর্যন্ত অপেক্ষা করুন।'
-                : 'সব API Key-এর quota শেষ। কিছুক্ষণ পরে আবার চেষ্টা করুন।'
+                : 'সব API Key-এর quota বা rate limit শেষ। কিছুক্ষণ পরে আবার চেষ্টা করুন।'
             );
-          }
-
-          if (isTemporaryRateLimit && tempRateLimitRetryCount < 4) {
-            const delay = retryDelayMs ?? Math.min(8000 + tempRateLimitRetryCount * 4000, 25000);
-            toast({
-              title: "⏳ API rate limit",
-              description: `${Math.round(delay / 1000)}s অপেক্ষা করে আবার চেষ্টা করা হচ্ছে`,
-            });
-            await new Promise(r => setTimeout(r, delay));
-            return makeApiCall({
-              alternateOrder,
-              tryKeyIndex,
-              model,
-              quotaRetryCount,
-              tempRateLimitRetryCount: tempRateLimitRetryCount + 1,
-            });
           }
 
           if (isModelOverloaded) {
             // Overload/limit: first try another API key on the SAME model,
             // cycling through every valid key before falling to the next model.
-            const validKeyCount = apiKeys.filter(k => k.trim()).length;
-            const nextKey = getNextAvailableKey(apiKeys, tryKeyIndex);
-            if (nextKey !== -1 && nextKey !== tryKeyIndex && overloadKeyCount < validKeyCount) {
+            exhaustedKeys.current.add(tryKeyIndex);
+            const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
+            if (nextAttempt) {
+              const changedModel = nextAttempt.model !== model;
+              if (changedModel) exhaustedKeys.current.clear();
               toast({
-                title: "🔄 API Key সুইচ হচ্ছে",
-                description: `${model} overloaded/limit → একই মডেলে Key ${nextKey + 1} দিয়ে আবার চেষ্টা হচ্ছে`,
+                title: changedModel ? "🔄 Fallback মডেল চালু হয়েছে" : "🔄 API Key সুইচ হচ্ছে",
+                description: changedModel
+                  ? `${model} overloaded → ${nextAttempt.model} মডেলে retry করা হচ্ছে`
+                  : `${model} overloaded → একই মডেলে Key ${nextAttempt.keyIndex + 1} দিয়ে আবার চেষ্টা হচ্ছে`,
               });
-              setActiveKeyIndex(nextKey);
+              setActiveKeyIndex(nextAttempt.keyIndex);
               return makeApiCall({
                 alternateOrder,
-                tryKeyIndex: nextKey,
-                model,
+                tryKeyIndex: nextAttempt.keyIndex,
+                model: nextAttempt.model,
                 quotaRetryCount,
                 tempRateLimitRetryCount,
-                overloadKeyCount: overloadKeyCount + 1,
-              });
-            }
-
-            const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
-            const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
-            if (firstValidKeyIndex !== -1 && fallbackModel) {
-              exhaustedKeys.current.clear();
-              toast({
-                title: "🔄 Fallback মডেল চালু হয়েছে",
-                description: `${model} overloaded → ${fallbackModel} মডেলে retry করা হচ্ছে`,
-              });
-              setActiveKeyIndex(firstValidKeyIndex);
-              return makeApiCall({
-                alternateOrder,
-                tryKeyIndex: firstValidKeyIndex,
-                model: fallbackModel,
               });
             }
           }
