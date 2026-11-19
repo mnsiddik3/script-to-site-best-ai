@@ -143,28 +143,6 @@ const MODEL_FALLBACKS: Record<GeminiModel, GeminiModel | null> = {
   'gemini-2.5-flash': null,
 };
 
-export const getNextGeminiAttempt = (
-  apiKeys: string[],
-  currentKeyIndex: number,
-  model: GeminiModel,
-  exhaustedKeyIndices: Set<number>,
-): { keyIndex: number; model: GeminiModel } | null => {
-  for (let offset = 1; offset <= apiKeys.length; offset++) {
-    const keyIndex = (currentKeyIndex + offset) % apiKeys.length;
-    if (apiKeys[keyIndex]?.trim() && !exhaustedKeyIndices.has(keyIndex)) {
-      return { keyIndex, model };
-    }
-  }
-
-  const fallbackModel = MODEL_FALLBACKS[model];
-  const firstValidKeyIndex = apiKeys.findIndex((key) => key.trim());
-  if (fallbackModel && firstValidKeyIndex !== -1) {
-    return { keyIndex: firstValidKeyIndex, model: fallbackModel };
-  }
-
-  return null;
-};
-
 // Clean symbols from keywords
 const cleanKeywords = (keywords: string[]): string[] => {
   return keywords.map(k => k.replace(/[^\w\s]/g, '').trim()).filter(k => k.length > 0);
@@ -312,17 +290,35 @@ export const useGeminiApi = () => {
   const [processingQueue, setProcessingQueue] = useState(false);
   const [activeKeyIndex, setActiveKeyIndex] = useState(0);
   const { toast } = useToast();
+  const lastApiCallTime = useRef(0);
   const exhaustedKeys = useRef<Set<number>>(new Set());
   const keyUsageCount = useRef<number>(0);
   const currentRotationKey = useRef<number>(-1);
 
   const REQUESTS_PER_KEY = 10;
   const KEY_ROTATION_PAUSE = 120000; // 2 minutes
-  const REQUEST_TIMEOUT_MS = 15_000;
-  const GENERATION_TIMEOUT_MS = 45_000;
 
   const RATE_LIMIT = {
+    minDelay: 6000,
+    maxDelay: 8000,
     batchDelay: 10000,
+    retryOn429: 65000,
+    maxRPM: 10,
+  };
+
+  // Generate random delay between 6.5s to 8s to appear more human-like
+  const getRandomDelay = (): number => {
+    const delays = [6500, 7000, 7500, 8000];
+    return delays[Math.floor(Math.random() * delays.length)];
+  };
+
+  const waitForRateLimit = async () => {
+    const elapsed = Date.now() - lastApiCallTime.current;
+    const randomDelay = getRandomDelay();
+    if (elapsed < randomDelay) {
+      await new Promise(r => setTimeout(r, randomDelay - elapsed));
+    }
+    lastApiCallTime.current = Date.now();
   };
 
   const getFirstValidKeyIndex = useCallback((keys: string[]): number => {
@@ -400,8 +396,6 @@ export const useGeminiApi = () => {
     }
 
     const isVideo = imageFile.type.startsWith('video/');
-    const generationDeadline = Date.now() + GENERATION_TIMEOUT_MS;
-    let preparedMediaBlock: { type: string; data: string; mime_type: string } | null = null;
 
     const makeApiCall = async ({
       alternateOrder = false,
@@ -409,36 +403,28 @@ export const useGeminiApi = () => {
       model = preferredModel,
       quotaRetryCount = 0,
       tempRateLimitRetryCount = 0,
+      overloadKeyCount = 0,
     } = {}): Promise<any> => {
       try {
-        if (!preparedMediaBlock) {
-          const { base64Data, mimeType } = isVideo
-            ? await convertVideoToBase64(imageFile)
-            : await optimizeImageForGemini(imageFile);
-          preparedMediaBlock = {
-            type: isVideo ? 'video' : 'image',
-            data: base64Data,
-            mime_type: mimeType,
-          };
-        }
+        const { base64Data, mimeType } = isVideo
+          ? await convertVideoToBase64(imageFile)
+          : await optimizeImageForGemini(imageFile);
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
+        const isRateLimitedModel = model !== preferredModel;
+
+        const mediaBlock = {
+          type: contentType,
+          data: base64Data,
+          mime_type: mimeType,
+        };
         const textBlock = { type: 'text', text: prompt };
-        const input = alternateOrder
-          ? [textBlock, preparedMediaBlock]
-          : [preparedMediaBlock, textBlock];
+        const input = alternateOrder ? [textBlock, mediaBlock] : [mediaBlock, textBlock];
+
+        if (isRateLimitedModel) await waitForRateLimit();
 
         const currentKey = apiKeys[tryKeyIndex];
-        const remainingTime = generationDeadline - Date.now();
-        if (remainingTime <= 0) {
-          throw new Error('সময়সীমা শেষ হয়েছে। ছোট ছবি দিয়ে আবার চেষ্টা করুন।');
-        }
-        const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          Math.min(REQUEST_TIMEOUT_MS, remainingTime),
-        );
         const response = await fetch(INTERACTIONS_ENDPOINT, {
           method: 'POST',
           headers: {
@@ -446,8 +432,7 @@ export const useGeminiApi = () => {
             'x-goog-api-key': currentKey ?? '',
           },
           body: JSON.stringify({ model, input }),
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeoutId));
+        });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
@@ -469,61 +454,118 @@ export const useGeminiApi = () => {
             (response.status === 429 || errorStatus === 'RESOURCE_EXHAUSTED') &&
             !isQuotaExhausted &&
             (hasMinuteQuotaViolation || Boolean(retryDelayMs));
-          const isRequestTimedOut =
-            response.status === 408 || response.status === 502 || response.status === 504 ||
-            /deadline expired|timed out|timeout/i.test(errorMessage);
-          const isModelOverloaded =
-            response.status === 503 || errorStatus === 'UNAVAILABLE' || isHighDemand || isRequestTimedOut;
+          const isModelOverloaded = response.status === 503 || errorStatus === 'UNAVAILABLE' || isHighDemand;
 
-          if (isQuotaExhausted || isTemporaryRateLimit) {
+          if (isQuotaExhausted) {
             exhaustedKeys.current.add(tryKeyIndex);
-            const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
+            const nextKey = getNextAvailableKey(apiKeys, tryKeyIndex);
 
-            if (nextAttempt) {
-              const changedModel = nextAttempt.model !== model;
+            if (nextKey !== -1 && nextKey !== tryKeyIndex) {
               toast({
-                title: changedModel ? "🔄 Fallback মডেলে সুইচ হচ্ছে" : "🔄 API Key সুইচ হচ্ছে",
-                description: changedModel
-                  ? `${model} quota/limit শেষ → ${nextAttempt.model} ট্রাই হচ্ছে`
-                  : `Key ${tryKeyIndex + 1} limit শেষ → Key ${nextAttempt.keyIndex + 1} ব্যবহার হচ্ছে`,
+                title: "🔄 API Key সুইচ হচ্ছে",
+                description: `Key ${tryKeyIndex + 1} limit শেষ → Key ${nextKey + 1} ব্যবহার হচ্ছে`,
               });
-              if (changedModel) exhaustedKeys.current.clear();
-              setActiveKeyIndex(nextAttempt.keyIndex);
+              setActiveKeyIndex(nextKey);
               return makeApiCall({
                 alternateOrder,
-                tryKeyIndex: nextAttempt.keyIndex,
-                model: nextAttempt.model,
+                tryKeyIndex: nextKey,
+                model,
+                quotaRetryCount: quotaRetryCount + 1,
+              });
+            }
+
+            const fallbackModelForQuota = MODEL_FALLBACKS[model];
+            if (fallbackModelForQuota) {
+              const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
+              if (firstValidKeyIndex !== -1) {
+                exhaustedKeys.current.clear();
+                toast({
+                  title: "🔄 Fallback মডেলে সুইচ হচ্ছে",
+                  description: `${model} quota/limit → ${fallbackModelForQuota} ট্রাই হচ্ছে`,
+                });
+                setActiveKeyIndex(firstValidKeyIndex);
+                return makeApiCall({
+                  alternateOrder,
+                  tryKeyIndex: firstValidKeyIndex,
+                  model: fallbackModelForQuota,
+                });
+              }
+            }
+
+            if (!hasDailyQuotaViolation && quotaRetryCount < 2) {
+              const delay = retryDelayMs ?? RATE_LIMIT.retryOn429;
+              toast({
+                title: "⏳ Quota reset এর জন্য অপেক্ষা",
+                description: `${Math.round(delay / 1000)}s পরে আবার চেষ্টা করা হবে`,
+              });
+              exhaustedKeys.current.clear();
+              await new Promise(r => setTimeout(r, delay));
+              const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
+              return makeApiCall({
+                alternateOrder,
+                tryKeyIndex: firstValidKeyIndex === -1 ? tryKeyIndex : firstValidKeyIndex,
+                model,
+                quotaRetryCount: quotaRetryCount + 1,
               });
             }
 
             throw new Error(
               hasDailyQuotaViolation
                 ? 'সব API Key-এর daily quota শেষ। নতুন API Key দিন বা quota reset হওয়া পর্যন্ত অপেক্ষা করুন।'
-                : 'সব API Key-এর quota বা rate limit শেষ। কিছুক্ষণ পরে আবার চেষ্টা করুন।'
+                : 'সব API Key-এর quota শেষ। কিছুক্ষণ পরে আবার চেষ্টা করুন।'
             );
+          }
+
+          if (isTemporaryRateLimit && tempRateLimitRetryCount < 4) {
+            const delay = retryDelayMs ?? Math.min(8000 + tempRateLimitRetryCount * 4000, 25000);
+            toast({
+              title: "⏳ API rate limit",
+              description: `${Math.round(delay / 1000)}s অপেক্ষা করে আবার চেষ্টা করা হচ্ছে`,
+            });
+            await new Promise(r => setTimeout(r, delay));
+            return makeApiCall({
+              alternateOrder,
+              tryKeyIndex,
+              model,
+              quotaRetryCount,
+              tempRateLimitRetryCount: tempRateLimitRetryCount + 1,
+            });
           }
 
           if (isModelOverloaded) {
             // Overload/limit: first try another API key on the SAME model,
             // cycling through every valid key before falling to the next model.
-            exhaustedKeys.current.add(tryKeyIndex);
-            const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
-            if (nextAttempt) {
-              const changedModel = nextAttempt.model !== model;
-              if (changedModel) exhaustedKeys.current.clear();
+            const validKeyCount = apiKeys.filter(k => k.trim()).length;
+            const nextKey = getNextAvailableKey(apiKeys, tryKeyIndex);
+            if (nextKey !== -1 && nextKey !== tryKeyIndex && overloadKeyCount < validKeyCount) {
               toast({
-                title: changedModel ? "🔄 Fallback মডেল চালু হয়েছে" : "🔄 API Key সুইচ হচ্ছে",
-                description: changedModel
-                  ? `${model} overloaded → ${nextAttempt.model} মডেলে retry করা হচ্ছে`
-                  : `${model} overloaded → একই মডেলে Key ${nextAttempt.keyIndex + 1} দিয়ে আবার চেষ্টা হচ্ছে`,
+                title: "🔄 API Key সুইচ হচ্ছে",
+                description: `${model} overloaded/limit → একই মডেলে Key ${nextKey + 1} দিয়ে আবার চেষ্টা হচ্ছে`,
               });
-              setActiveKeyIndex(nextAttempt.keyIndex);
+              setActiveKeyIndex(nextKey);
               return makeApiCall({
                 alternateOrder,
-                tryKeyIndex: nextAttempt.keyIndex,
-                model: nextAttempt.model,
+                tryKeyIndex: nextKey,
+                model,
                 quotaRetryCount,
                 tempRateLimitRetryCount,
+                overloadKeyCount: overloadKeyCount + 1,
+              });
+            }
+
+            const fallbackModel = MODEL_FALLBACKS[model] as GeminiModel;
+            const firstValidKeyIndex = getFirstValidKeyIndex(apiKeys);
+            if (firstValidKeyIndex !== -1 && fallbackModel) {
+              exhaustedKeys.current.clear();
+              toast({
+                title: "🔄 Fallback মডেল চালু হয়েছে",
+                description: `${model} overloaded → ${fallbackModel} মডেলে retry করা হচ্ছে`,
+              });
+              setActiveKeyIndex(firstValidKeyIndex);
+              return makeApiCall({
+                alternateOrder,
+                tryKeyIndex: firstValidKeyIndex,
+                model: fallbackModel,
               });
             }
           }
@@ -543,30 +585,6 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
-        const isRequestTimeout = error instanceof Error && (
-          error.name === 'AbortError' || /deadline expired|timed out|timeout/i.test(error.message)
-        );
-        if (isRequestTimeout) {
-          exhaustedKeys.current.add(tryKeyIndex);
-          const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
-          if (nextAttempt && Date.now() < generationDeadline) {
-            const changedModel = nextAttempt.model !== model;
-            if (changedModel) exhaustedKeys.current.clear();
-            setActiveKeyIndex(nextAttempt.keyIndex);
-            toast({
-              title: changedModel ? '🔄 সময়সীমা পেরিয়েছে, পরের মডেল চেষ্টা হচ্ছে' : '🔄 অন্য API Key চেষ্টা হচ্ছে',
-              description: changedModel
-                ? `${model} সাড়া দেয়নি → ${nextAttempt.model} চেষ্টা হচ্ছে`
-                : `Key ${tryKeyIndex + 1} সাড়া দেয়নি → Key ${nextAttempt.keyIndex + 1} চেষ্টা হচ্ছে`,
-            });
-            return makeApiCall({
-              alternateOrder,
-              tryKeyIndex: nextAttempt.keyIndex,
-              model: nextAttempt.model,
-            });
-          }
-          throw new Error('Gemini সাড়া দিতে সময় নিয়েছে। ছোট ছবি দিয়ে আবার চেষ্টা করুন।');
-        }
         throw error;
       }
     };

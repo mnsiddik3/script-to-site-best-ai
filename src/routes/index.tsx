@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { Sparkles, Image as ImageIcon, Zap, Brain } from 'lucide-react';
+import { Sparkles, Image as ImageIcon, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImageUpload } from '@/components/ImageUpload';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { ImageWithMetadata } from '@/components/ImageWithMetadata';
 import { PlatformSpecificExport } from '@/components/PlatformSpecificExport';
-import { AiErrorDoctor } from '@/components/AiErrorDoctor';
 import { useGeminiApi, GEMINI_MODEL_OPTIONS, DEFAULT_MODEL, type GeminiModel } from '@/hooks/useGeminiApi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import heroImage from '@/assets/hero-image.jpg';
@@ -64,10 +62,6 @@ function Index() {
   };
 
   const hasValidKey = apiKeys.some(k => k.trim());
-
-  const lastError = [...results].reverse().find(r => r.failed && r.errorMessage)?.errorMessage;
-
-  const selectedOption = GEMINI_MODEL_OPTIONS.find(o => o.value === selectedModel) ?? GEMINI_MODEL_OPTIONS[0];
 
   const handleGenerate = async () => {
     if (!selectedImages.length || !hasValidKey) return;
@@ -250,60 +244,32 @@ function Index() {
           onImagesSelect={setSelectedImages} 
         />
 
-        {/* AI Settings: Model Selector + AI Error Doctor */}
-        <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-          {/* Model Selector */}
-          <Card className="border-brand-primary/20 h-full">
-            <CardHeader className="px-4 pt-4 pb-2 space-y-1">
-              <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-                <Brain className="h-4 w-4 text-brand-primary" />
-                AI মডেল নির্বাচন
-              </CardTitle>
-              <CardDescription className="text-xs">
-                প্রথমে যে মডেল বেছে নেবেন সেটিই কাজ করবে; লিমিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2.5">
-              <Select value={selectedModel} onValueChange={handleModelChange}>
-                <SelectTrigger className="w-full h-9">
-                  <SelectValue placeholder="মডেল বেছে নিন" />
-                </SelectTrigger>
-                <SelectContent>
-                  {GEMINI_MODEL_OPTIONS.map(option => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <span className="flex flex-col">
-                        <span className="font-medium">{option.label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          RPM {option.rpm} · TPM {(option.tpm / 1000).toLocaleString('en-US')}K · RPD {option.rpd}
-                        </span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { term: 'RPM', value: selectedOption.rpm, desc: 'প্রতি মিনিটে রিকোয়েস্ট' },
-                  { term: 'TPM', value: `${(selectedOption.tpm / 1000).toLocaleString('en-US')}K`, desc: 'প্রতি মিনিটে টোকেন' },
-                  { term: 'RPD', value: selectedOption.rpd, desc: 'দিনে সর্বোচ্চ রিকোয়েস্ট' },
-                ].map(stat => (
-                  <div key={stat.term} className="rounded-md border bg-muted/40 px-1.5 py-1.5 text-center">
-                    <p className="text-[10px] font-semibold text-brand-primary">{stat.term}</p>
-                    <p className="text-sm font-bold leading-tight text-foreground">{stat.value}</p>
-                    <p className="text-[9px] leading-tight text-muted-foreground">{stat.desc}</p>
-                  </div>
-                ))}
-              </div>
-
-              <p className="text-[10px] text-muted-foreground leading-snug">
-                RPM = প্রতি মিনিটে রিকোয়েস্ট · TPM = প্রতি মিনিটে টোকেন · RPD = ২৪ ঘণ্টায় সর্বোচ্চ রিকোয়েস্ট।
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* AI Error Doctor */}
-          <AiErrorDoctor lastError={lastError} />
+        {/* Model Selector */}
+        <div className="max-w-md mx-auto text-left space-y-2">
+          <label className="text-sm font-medium text-foreground">AI মডেল নির্বাচন করুন</label>
+          <Select value={selectedModel} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="মডেল বেছে নিন" />
+            </SelectTrigger>
+            <SelectContent>
+              {GEMINI_MODEL_OPTIONS.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  <span className="flex flex-col">
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      RPM {option.rpm} · TPM {(option.tpm / 1000).toLocaleString('en-US')}K · RPD {option.rpd}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            RPM = প্রতি মিনিটে কতগুলো রিকোয়েস্ট পাঠানো যাবে · TPM = প্রতি মিনিটে কতগুলো টোকেন প্রসেস হবে · RPD = প্রতি দিনে (২৪ ঘণ্টায়) সর্বোচ্চ কতগুলো রিকোয়েস্ট।
+          </p>
+          <p className="text-xs text-muted-foreground">
+            নির্বাচিত মডেল প্রথমে চলবে; লিমিট/ক্রেডিট শেষ হলে স্বয়ংক্রিয়ভাবে পরের মডেলে সুইচ হবে।
+          </p>
         </div>
 
         {/* Generate Button */}
