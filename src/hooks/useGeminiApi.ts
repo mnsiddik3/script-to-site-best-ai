@@ -312,35 +312,17 @@ export const useGeminiApi = () => {
   const [processingQueue, setProcessingQueue] = useState(false);
   const [activeKeyIndex, setActiveKeyIndex] = useState(0);
   const { toast } = useToast();
-  const lastApiCallTime = useRef(0);
   const exhaustedKeys = useRef<Set<number>>(new Set());
   const keyUsageCount = useRef<number>(0);
   const currentRotationKey = useRef<number>(-1);
 
   const REQUESTS_PER_KEY = 10;
   const KEY_ROTATION_PAUSE = 120000; // 2 minutes
+  const REQUEST_TIMEOUT_MS = 15_000;
+  const GENERATION_TIMEOUT_MS = 45_000;
 
   const RATE_LIMIT = {
-    minDelay: 6000,
-    maxDelay: 8000,
     batchDelay: 10000,
-    retryOn429: 65000,
-    maxRPM: 10,
-  };
-
-  // Generate random delay between 6.5s to 8s to appear more human-like
-  const getRandomDelay = (): number => {
-    const delays = [6500, 7000, 7500, 8000];
-    return delays[Math.floor(Math.random() * delays.length)];
-  };
-
-  const waitForRateLimit = async () => {
-    const elapsed = Date.now() - lastApiCallTime.current;
-    const randomDelay = getRandomDelay();
-    if (elapsed < randomDelay) {
-      await new Promise(r => setTimeout(r, randomDelay - elapsed));
-    }
-    lastApiCallTime.current = Date.now();
   };
 
   const getFirstValidKeyIndex = useCallback((keys: string[]): number => {
@@ -418,6 +400,8 @@ export const useGeminiApi = () => {
     }
 
     const isVideo = imageFile.type.startsWith('video/');
+    const generationDeadline = Date.now() + GENERATION_TIMEOUT_MS;
+    let preparedMediaBlock: { type: string; data: string; mime_type: string } | null = null;
 
     const makeApiCall = async ({
       alternateOrder = false,
@@ -427,25 +411,34 @@ export const useGeminiApi = () => {
       tempRateLimitRetryCount = 0,
     } = {}): Promise<any> => {
       try {
-        const { base64Data, mimeType } = isVideo
-          ? await convertVideoToBase64(imageFile)
-          : await optimizeImageForGemini(imageFile);
+        if (!preparedMediaBlock) {
+          const { base64Data, mimeType } = isVideo
+            ? await convertVideoToBase64(imageFile)
+            : await optimizeImageForGemini(imageFile);
+          preparedMediaBlock = {
+            type: isVideo ? 'video' : 'image',
+            data: base64Data,
+            mime_type: mimeType,
+          };
+        }
 
         const contentType = isVideo ? 'video' : 'image';
         const prompt = PROMPT.replace('{contentType}', contentType);
-        const isRateLimitedModel = model !== preferredModel;
-
-        const mediaBlock = {
-          type: contentType,
-          data: base64Data,
-          mime_type: mimeType,
-        };
         const textBlock = { type: 'text', text: prompt };
-        const input = alternateOrder ? [textBlock, mediaBlock] : [mediaBlock, textBlock];
-
-        if (isRateLimitedModel) await waitForRateLimit();
+        const input = alternateOrder
+          ? [textBlock, preparedMediaBlock]
+          : [preparedMediaBlock, textBlock];
 
         const currentKey = apiKeys[tryKeyIndex];
+        const remainingTime = generationDeadline - Date.now();
+        if (remainingTime <= 0) {
+          throw new Error('সময়সীমা শেষ হয়েছে। ছোট ছবি দিয়ে আবার চেষ্টা করুন।');
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          Math.min(REQUEST_TIMEOUT_MS, remainingTime),
+        );
         const response = await fetch(INTERACTIONS_ENDPOINT, {
           method: 'POST',
           headers: {
@@ -453,7 +446,8 @@ export const useGeminiApi = () => {
             'x-goog-api-key': currentKey ?? '',
           },
           body: JSON.stringify({ model, input }),
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null) as GeminiErrorResponse | null;
@@ -475,7 +469,11 @@ export const useGeminiApi = () => {
             (response.status === 429 || errorStatus === 'RESOURCE_EXHAUSTED') &&
             !isQuotaExhausted &&
             (hasMinuteQuotaViolation || Boolean(retryDelayMs));
-          const isModelOverloaded = response.status === 503 || errorStatus === 'UNAVAILABLE' || isHighDemand;
+          const isRequestTimedOut =
+            response.status === 408 || response.status === 502 || response.status === 504 ||
+            /deadline expired|timed out|timeout/i.test(errorMessage);
+          const isModelOverloaded =
+            response.status === 503 || errorStatus === 'UNAVAILABLE' || isHighDemand || isRequestTimedOut;
 
           if (isQuotaExhausted || isTemporaryRateLimit) {
             exhaustedKeys.current.add(tryKeyIndex);
@@ -545,6 +543,30 @@ export const useGeminiApi = () => {
 
         return { data: await response.json(), usedKeyIndex: tryKeyIndex };
       } catch (error) {
+        const isRequestTimeout = error instanceof Error && (
+          error.name === 'AbortError' || /deadline expired|timed out|timeout/i.test(error.message)
+        );
+        if (isRequestTimeout) {
+          exhaustedKeys.current.add(tryKeyIndex);
+          const nextAttempt = getNextGeminiAttempt(apiKeys, tryKeyIndex, model, exhaustedKeys.current);
+          if (nextAttempt && Date.now() < generationDeadline) {
+            const changedModel = nextAttempt.model !== model;
+            if (changedModel) exhaustedKeys.current.clear();
+            setActiveKeyIndex(nextAttempt.keyIndex);
+            toast({
+              title: changedModel ? '🔄 সময়সীমা পেরিয়েছে, পরের মডেল চেষ্টা হচ্ছে' : '🔄 অন্য API Key চেষ্টা হচ্ছে',
+              description: changedModel
+                ? `${model} সাড়া দেয়নি → ${nextAttempt.model} চেষ্টা হচ্ছে`
+                : `Key ${tryKeyIndex + 1} সাড়া দেয়নি → Key ${nextAttempt.keyIndex + 1} চেষ্টা হচ্ছে`,
+            });
+            return makeApiCall({
+              alternateOrder,
+              tryKeyIndex: nextAttempt.keyIndex,
+              model: nextAttempt.model,
+            });
+          }
+          throw new Error('Gemini সাড়া দিতে সময় নিয়েছে। ছোট ছবি দিয়ে আবার চেষ্টা করুন।');
+        }
         throw error;
       }
     };
